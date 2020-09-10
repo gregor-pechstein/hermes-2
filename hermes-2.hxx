@@ -65,6 +65,8 @@ private:
   Field3D Ve, Vi, Jpar;  // Electron and ion parallel velocities
   Field3D psi;        // Electromagnetic potential (-A_||)
   Field3D phi;        // Electrostatic potential
+  Field3D external_field ; // polodial magnetic potential for island
+  Field3D psi_zero;
   
   // Limited variables
   Field3D Telim, Tilim;

@@ -1,5 +1,5 @@
 
-BOUT_TOP	= ../..
+BOUT_TOP	= ../BOUT-dev
 
 TARGET = hermes-2
 

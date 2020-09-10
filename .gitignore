@@ -1,4 +1,15 @@
+/1000island/*
+/NO_island/*
+/NO_islandMasterBranch/*
+*.sh
+*.out
+*.a
+*.tar.gz
+.BOUT.pid.*
+*BOUT.settings
 *.o
 *.nc
 BOUT.log.*
-*.a
+/slab3d/*
+/circular/*
+doc/*

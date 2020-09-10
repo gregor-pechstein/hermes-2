@@ -977,6 +977,12 @@ int Hermes::init(bool restarting) {
   // Preconditioner
   setPrecon((preconfunc)&Hermes::precon);
   
+  auto& optexternal = opt["external_field"];
+  external_field = optexternal["function"].withDefault(Field3D{0.0});
+  SAVE_ONCE(external_field);
+
+  psi_zero=psi;
+  SAVE_REPEAT(psi_zero);
   return 0;
 }
 
@@ -1395,6 +1401,9 @@ int Hermes::rhs(BoutReal t) {
       Jpar = NVi - Ne * Ve;
     }
     // Ve -= Jpar0 / Ne; // Equilibrium current density
+    psi += external_field;
+    psi_zero=psi-external_field;
+    
   }
 
   //////////////////////////////////////////////////////////////
@@ -2495,7 +2504,7 @@ int Hermes::rhs(BoutReal t) {
        */
 
       // Spitzer-Harm heat flux
-      Field3D q_SH = kappa_epar * Grad_par(Te);
+      Field3D q_SH = kappa_epar * Grad_parP(Te);
       Field3D q_fl = kappa_limit_alpha * Nelim * Telim * sqrt(mi_me * Telim);
 
       kappa_epar = kappa_epar / (1. + abs(q_SH / q_fl));
@@ -2538,7 +2547,7 @@ int Hermes::rhs(BoutReal t) {
     Tifree.applyBoundary("free_o2");
 
     // For nonlinear terms, need to evaluate qipar and qi squared
-    Field3D qipar = -kappa_ipar * Grad_par(Tifree);
+    Field3D qipar = -kappa_ipar * Grad_parP(Tifree);
 
     // Limit the maximum value of tau_i
     tau_i = ceil(tau_i, 1e4);
@@ -2547,7 +2556,7 @@ int Hermes::rhs(BoutReal t) {
     // The first Pi term cancels the parallel part of the second term
     // Doesn't include perpendicular collisional transport
     Field3D qisq =
-        (SQ(kappa_ipar) - SQ((5. / 2) * Pilim)) * SQ(Grad_par(Tifree)) +
+        (SQ(kappa_ipar) - SQ((5. / 2) * Pilim)) * SQ(Grad_parP(Tifree)) +
         SQ((5. / 2) * Pilim) * SQ(Grad(Tifree)); // This term includes a
                                                  // parallel component which is
                                                  // cancelled in first term
@@ -2558,15 +2567,15 @@ int Hermes::rhs(BoutReal t) {
              Curlb_B * Grad(Pi) / Nelim) // q perpendicular
         +
         0.96 * tau_i * (1.42 / B32) *
-            FV::Div_par_K_Grad_par(B32 * kappa_ipar, Tifree) // q parallel
+            FV::Div_par_K_Grad_par(B32 * kappa_ipar, Tifree)+ 0.5*beta_e*bracket(psi, Tifree, BRACKET_ARAKAWA) // q parallel
         -
         0.49 * (qipar / Pilim) *
-            (2.27 * Grad_par(log(Tilim)) - Grad_par(log(Pilim))) +
+            (2.27 * Grad_parP(log(Tilim)) - Grad_parP(log(Pilim))) +
         0.75 * (0.2 * SQ(qipar) - 0.085 * qisq) / (Pilim * Tilim);
 
     // Parallel part
     Pi_cipar = -0.96 * Pi * tau_i *
-               (2. * Grad_par(Vi) + Vi * Grad_par(log(coord->Bxy)));
+               (2. * Grad_parP(Vi) + Vi * Grad_parP(log(coord->Bxy)));
     // Could also be written as:
     // Pi_cipar = -
     // 0.96*Pi*tau_i*2.*Grad_par(sqrt(coord->Bxy)*Vi)/sqrt(coord->Bxy);
@@ -2657,10 +2666,10 @@ int Hermes::rhs(BoutReal t) {
     if (currents) {
       // Parallel wave speed increased to electron sound speed
       // since electrostatic & electromagnetic waves are supported
-      ddt(Ne) -= FV::Div_par(Ne, Ve, sqrt(mi_me) * sound_speed);
+      ddt(Ne) -= FV::Div_par(Ne, Ve, sqrt(mi_me) * sound_speed)+ 0.5*beta_e*bracket(psi, Ne, BRACKET_ARAKAWA);
     } else {
       // Parallel wave speed is ion sound speed
-      ddt(Ne) -= FV::Div_par(Ne, Ve, sound_speed);
+      ddt(Ne) -= FV::Div_par(Ne, Ve, sound_speed)+ 0.5*beta_e*bracket(psi, Ne, BRACKET_ARAKAWA);
     }
   }
 
@@ -2732,7 +2741,7 @@ int Hermes::rhs(BoutReal t) {
   if (low_n_diffuse) {
     // Diffusion which kicks in at very low density, in order to
     // help prevent negative density regions
-    ddt(Ne) += FV::Div_par_K_Grad_par(SQ(coord->dy) * coord->g_22 * 1e-4 / Nelim, Ne);
+    ddt(Ne) += FV::Div_par_K_Grad_par(SQ(coord->dy) * coord->g_22 * 1e-4 / Nelim, Ne)+ 0.5*beta_e*bracket(psi, Ne, BRACKET_ARAKAWA) ;
   }
   if (low_n_diffuse_perp) {
     ddt(Ne) += Div_Perp_Lap_FV_Index(1e-4 / Nelim, Ne, ne_bndry_flux);
@@ -2760,7 +2769,7 @@ int Hermes::rhs(BoutReal t) {
       
       // This term is central differencing so that it balances the parallel gradient
       // of the potential in Ohm's law
-      ddt(Vort) += Div_par(Jpar);
+      ddt(Vort) += Div_parP(Jpar);
     }
 
     if (j_diamag) {
@@ -2862,7 +2871,7 @@ int Hermes::rhs(BoutReal t) {
         }
       }
 
-      ddt(Vort) -= FV::Div_par(Vort, 0.0, max_speed);
+      ddt(Vort) -= FV::Div_par(Vort, 0.0, max_speed)+ 0.5*beta_e*bracket(psi, Vort, BRACKET_ARAKAWA);
     }
   }
 
@@ -2905,7 +2914,7 @@ int Hermes::rhs(BoutReal t) {
       if (eta_limit_alpha > 0.) {
         // SOLPS-style flux limiter
         // Values of alpha ~ 0.5 typically
-        Field3D q_cl = ve_eta * Grad_par(Ve);           // Collisional value
+        Field3D q_cl = ve_eta * Grad_parP(Ve);           // Collisional value
         Field3D q_fl = eta_limit_alpha * Pelim * mi_me; // Flux limit
 
         ve_eta = ve_eta / (1. + abs(q_cl / q_fl));
@@ -2913,12 +2922,12 @@ int Hermes::rhs(BoutReal t) {
         mesh->communicate(ve_eta);
         ve_eta.applyBoundary("neumann");
       }
-      ddt(VePsi) += FV::Div_par_K_Grad_par(ve_eta, Ve);
+      ddt(VePsi) += FV::Div_par_K_Grad_par(ve_eta, Ve)+ 0.5*beta_e*bracket(psi, Ve, BRACKET_ARAKAWA) ;
     }
     
     if (FiniteElMass) {
       // Finite Electron Mass. Small correction needed to conserve energy
-      ddt(VePsi) -= Vi * Grad_par(Ve - Vi); // Parallel advection
+      ddt(VePsi) -= Vi * Grad_parP(Ve - Vi); // Parallel advection
       ddt(VePsi) -= bracket(phi, Ve - Vi, BRACKET_ARAKAWA);  // ExB advection
       // Should also have ion polarisation advection here
     }
@@ -2955,7 +2964,7 @@ int Hermes::rhs(BoutReal t) {
         }
       }
 
-      ddt(VePsi) -= FV::Div_par(Ve - Vi, 0.0, max_speed);
+      ddt(VePsi) -= FV::Div_par(Ve - Vi, 0.0, max_speed)+ 0.5*beta_e*bracket(psi, Ve - Vi, BRACKET_ARAKAWA);
     }
   }
 
@@ -2992,7 +3001,7 @@ int Hermes::rhs(BoutReal t) {
 
       // The parallel part is solved as a diffusion term
       ddt(NVi) += 1.28 * sqrtB *
-                  FV::Div_par_K_Grad_par(Pi * tau_i / (coord->Bxy), sqrtB * Vi);
+	FV::Div_par_K_Grad_par(Pi * tau_i / (coord->Bxy), sqrtB * Vi)+ 0.5*beta_e*bracket(psi, sqrtB * Vi, BRACKET_ARAKAWA);
     }
 
     if (ion_viscosity) {
@@ -3002,7 +3011,7 @@ int Hermes::rhs(BoutReal t) {
       if (currents) {
         // Perpendicular part. B32 = B^{3/2}
         // This is only included if ExB flow is included
-        ddt(NVi) -= (2. / 3) * B32 * Grad_par(Pi_ciperp / B32);
+        ddt(NVi) -= (2. / 3) * B32 * Grad_parP(Pi_ciperp / B32);
       }
     }
 
@@ -3047,7 +3056,7 @@ int Hermes::rhs(BoutReal t) {
     if (low_n_diffuse) {
       // Diffusion which kicks in at very low density, in order to
       // help prevent negative density regions
-      ddt(NVi) += FV::Div_par_K_Grad_par(SQ(coord->dy) * coord->g_22 * 1e-4 / Nelim, NVi);
+      ddt(NVi) += FV::Div_par_K_Grad_par(SQ(coord->dy) * coord->g_22 * 1e-4 / Nelim, NVi)+ 0.5*beta_e*bracket(psi, NVi, BRACKET_ARAKAWA);
     }
     if (low_n_diffuse_perp) {
       ddt(NVi) += Div_Perp_Lap_FV_Index(1e-4 / Nelim, NVi, ne_bndry_flux);
@@ -3070,9 +3079,9 @@ int Hermes::rhs(BoutReal t) {
     // Parallel flow
     if (currents) {
       // Like Ne term, parallel wave speed increased
-      ddt(Pe) -= FV::Div_par(Pe, Ve, sqrt(mi_me) * sound_speed);
+      ddt(Pe) -= FV::Div_par(Pe, Ve, sqrt(mi_me) * sound_speed)+ 0.5*beta_e*bracket(psi, Pe, BRACKET_ARAKAWA);
     } else {
-      ddt(Pe) -= FV::Div_par(Pe, Ve, sound_speed);
+      ddt(Pe) -= FV::Div_par(Pe, Ve, sound_speed)+ 0.5*beta_e*bracket(psi, Pe, BRACKET_ARAKAWA);
     }
   }
 
@@ -3088,7 +3097,7 @@ int Hermes::rhs(BoutReal t) {
 
   // Parallel heat conduction
   if (thermal_conduction) {
-    ddt(Pe) += (2. / 3) * FV::Div_par_K_Grad_par(kappa_epar, Te);
+    ddt(Pe) += (2. / 3) * FV::Div_par_K_Grad_par(kappa_epar, Te)+ 0.5*beta_e*bracket(psi, Te, BRACKET_ARAKAWA);
   }
 
   if (thermal_flux) {
@@ -3224,7 +3233,7 @@ int Hermes::rhs(BoutReal t) {
   if (pe_par_p_term) {
     // This term balances energetically the pressure term
     // in Ohm's law
-    ddt(Pe) -= (2. / 3) * Pelim * Div_par(Ve);
+    ddt(Pe) -= (2. / 3) * Pelim * Div_parP(Ve);
   }
   if (ramp_mesh && (t < ramp_timescale)) {
     ddt(Pe) += PeTarget / ramp_timescale;
@@ -3338,7 +3347,7 @@ int Hermes::rhs(BoutReal t) {
 
   // Parallel flow
   if (parallel_flow_p_term) {
-    ddt(Pi) -= FV::Div_par(Pi, Vi, sound_speed);
+    ddt(Pi) -= FV::Div_par(Pi, Vi, sound_speed)+ 0.5*beta_e*bracket(psi, Pi, BRACKET_ARAKAWA);
   }
 
   if (j_diamag) { // Diamagnetic flow
@@ -3363,14 +3372,14 @@ int Hermes::rhs(BoutReal t) {
 
   // Parallel heat conduction
   if (thermal_conduction) {
-    ddt(Pi) += (2. / 3) * FV::Div_par_K_Grad_par(kappa_ipar, Ti);
+    ddt(Pi) += (2. / 3) * FV::Div_par_K_Grad_par(kappa_ipar, Ti)+ 0.5*beta_e*bracket(psi, Ti, BRACKET_ARAKAWA);
   }
 
   // Parallel pressure gradients (sound waves)
   if (pe_par_p_term) {
     // This term balances energetically the pressure term
     // in the parallel momentum equation
-    ddt(Pi) -= (2. / 3) * Pilim * Div_par(Vi);
+    ddt(Pi) -= (2. / 3) * Pilim * Div_parP(Vi);
   }
   
   if (electron_ion_transfer) {
@@ -3413,10 +3422,10 @@ int Hermes::rhs(BoutReal t) {
   if (ion_viscosity) {
     // Collisional heating due to parallel viscosity
     
-    ddt(Pi) += (2. / 3) * 1.28 * (Pi * tau_i / sqrtB) * Grad_par(sqrtB * Vi) * Div_par(Vi);
+    ddt(Pi) += (2. / 3) * 1.28 * (Pi * tau_i / sqrtB) * Grad_parP(sqrtB * Vi) * Div_parP(Vi);
     
     if (currents) {
-      ddt(Pi) -= (4. / 9) * Pi_ciperp * Div_par(Vi);
+      ddt(Pi) -= (4. / 9) * Pi_ciperp * Div_parP(Vi);
       //(4. / 9) * Vi * B32 * Grad_par(Pi_ciperp / B32);
 
       ddt(Pi) -= (2. / 6) * Pi_ci * Curlb_B * Grad(phi + Pi);
@@ -4034,12 +4043,13 @@ int Hermes::precon(BoutReal t, BoutReal gamma, BoutReal delta) {
 }
 
 const Field3D Hermes::Grad_parP(const Field3D &f) {
-  return Grad_par(f); //+ 0.5*beta_e*bracket(psi, f, BRACKET_ARAKAWA);
+  return Grad_par(f)+ 0.5*beta_e*bracket(psi, f, BRACKET_ARAKAWA);
 }
 
 const Field3D Hermes::Div_parP(const Field3D &f) {
-  return Div_par(f);
-  //+ 0.5*beta_e*coord->Bxy*bracket(psi, f/coord->Bxy, BRACKET_ARAKAWA);
+  Coordinates *coord = mesh->getCoordinates();
+  
+  return Div_par(f)+ 0.5*beta_e*coord->Bxy*bracket(psi, f/coord->Bxy, BRACKET_ARAKAWA);
 }
 
 // Standard main() function
