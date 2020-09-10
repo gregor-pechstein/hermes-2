@@ -77,15 +77,15 @@ upwind = W3
 [solver]
 
 # Note: If evolving neutrals, need preconditioning
-type = cvode
-use_precon = true
+type = pvode
+use_precon = false
 
 ATOL = 1.0e-10  # absolute tolerance
 RTOL = 1.0e-5   # relative tolerance
 mxstep = 1000000  # Maximum internal steps per output
 
-cvode_max_order = 2
-cvode_stability_limit_detection = true
+#cvode_max_order = 2
+#cvode_stability_limit_detection = true
 
 [laplace]  # This is used for Delp2 operator
 all_terms = true

@@ -1,4 +1,4 @@
-BOUT_TOP=../../..
+BOUT_TOP=../../BOUT-dev
 
 SOURCEC = ImpuritySpecies.cxx Prad.cxx RateCoefficient.cxx sharedFunctions.cxx
 SOURCEH		= $(SOURCEC:%.cxx=%.hxx) json.hxx
