@@ -67,7 +67,7 @@ private:
   Field3D phi;        // Electrostatic potential
   Field3D external_field ; // polodial magnetic potential for island
   Field3D psi_zero;
-  
+  BoutReal IslandWidth; // Width of magnetic Island
   // Limited variables
   Field3D Telim, Tilim;
 
@@ -221,8 +221,8 @@ private:
   // Normalisation parameters
   BoutReal Tnorm, Nnorm, Bnorm;
   BoutReal AA, Cs0, rho_s0, Omega_ci;
-  BoutReal mi_me, beta_e;
-  
+  BoutReal mi_me, beta_e;  
+
   // Curvature, Grad-B drift
   Vector3D Curlb_B; // Curl(b/B)
   
