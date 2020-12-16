@@ -980,8 +980,9 @@ int Hermes::init(bool restarting) {
   auto& optexternal = opt["external_field"];
   
   OPTION(optsc, IslandWidth, 0.1);  // Island Width in [m]
+  IslandWidth /= rho_s0 //normalization
   external_field = optexternal["function"].withDefault(Field3D{0.0});
-  external_field /= rho_s0; //normalization
+  //external_field /= rho_s0; //normalization
   SAVE_ONCE(external_field);
 
   psi_zero=psi;
