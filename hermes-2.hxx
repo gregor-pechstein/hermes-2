@@ -68,6 +68,8 @@ private:
   Field3D external_field ; // polodial magnetic potential for island
   Field3D psi_zero;
   BoutReal IslandWidth; // Width of magnetic Island
+  BoutReal W;           // normalized Width
+  
   // Limited variables
   Field3D Telim, Tilim;
 
